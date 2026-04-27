@@ -166,6 +166,56 @@ All buffers are statically allocated. There is no dynamic memory allocation (`St
 
 Total RAM usage is well within the 32KB available on the Uno R4.
 
+## Sketch of the connections
+
+```cpp
+/*
+	DHT22 + BMP280 + SH1106 OLED + WiFi dashboard
+	Board: Arduino Uno R4 WiFi
+
+	Wiring:
+		DHT22 pin1 (VCC)  -> 5V
+		DHT22 pin2 (DATA) -> D2  (10k pull-up optional)
+		DHT22 pin3 (NC)   -> leave unconnected
+		DHT22 pin4 (GND)  -> GND
+
+		BMP280 VCC -> 3.3V  (NOT 5V)
+		BMP280 GND -> GND
+		BMP280 SDA -> A4
+		BMP280 SCL -> A5
+		BMP280 SDO -> GND   (sets I2C address to 0x76)
+		BMP280 CSB -> 3.3V  (forces I2C mode)
+
+		SH1106 VCC -> 3.3V or 5V
+		SH1106 GND -> GND
+		SH1106 SDA -> A4
+		SH1106 SCL -> A5
+
+	Libraries to install via Library Manager:
+		DHT sensor library  (Adafruit)
+		Adafruit Unified Sensor (Adafruit)
+		Adafruit BMP280 Library (Adafruit)
+		U8g2 (oliver)
+		WiFiS3 is built into the Uno R4 board package, no install needed.
+
+	OLED screens (rotate every 4s):
+		0 - Temperature, Humidity, Pressure
+		1 - Heat Index, Dew Point, Abs Humidity, Comfort
+		2 - Session Min/Max + Uptime
+		3 - Weather Trend (3h pressure history)
+		4 - DHT22 vs BMP280 + Altitude
+		5 - Temperature graph (last 30 min)
+
+	Alerts (interrupt screen rotation for 3s):
+		Heat danger  - Heat Index > 39C
+		Frost risk   - Dew point within 2C of temp and temp < 6C
+		Freeze       - Temperature < 0C
+
+	Web dashboard: http://<IP shown on OLED at startup>
+	Auto-refreshes every 10s.
+*/
+```
+
 ---
 
 ## License
