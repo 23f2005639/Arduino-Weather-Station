@@ -50,10 +50,8 @@
 #include <Adafruit_BMP280.h>
 #include <WiFiS3.h>
 #include <math.h>
+#include "secrets.h"   // copy secrets.h.example → secrets.h and fill in your values
 
-// WiFi credentials — replace with your network details
-const char WIFI_SSID[] = "YOUR_SSID";
-const char WIFI_PASS[] = "YOUR_PASSWORD";
 WiFiServer server(80);
 
 // Hardware
@@ -109,7 +107,12 @@ char  alertLine1[22], alertLine2[22];
 
 // WiFi state
 bool wifiOK = false;
-char ipStr[20] = "not connected";
+char ipStr[20]   = "not connected";
+char deviceId[20] = "";
+
+// Ingest timer
+#define INGEST_MS      10000UL   // POST to server every 10 s
+unsigned long lastIngest = 0;
 
 // --- Helpers ---
 
@@ -336,6 +339,64 @@ void showAlert() {
   display.sendBuffer();
 }
 
+// --- Backend ingest ---
+
+void postIngest() {
+  if (!wifiOK || !sensorsReady) return;
+
+  WiFiClient httpClient;
+  if (!httpClient.connect(BACKEND_HOST, BACKEND_PORT)) {
+    Serial.println(F("[POST] connect failed"));
+    return;
+  }
+
+  float pressDelta = pressFilled > 4
+    ? (bmpPres - pressHist[(pressHead - pressFilled + TREND_SAMPLES) % TREND_SAMPLES])
+    : 0.0f;
+
+  char body[640];
+  snprintf(body, sizeof(body),
+    "{"
+      "\"device_id\":\"%s\","
+      "\"uptime_ms\":%lu,"
+      "\"dht_temp\":%.2f,\"dht_rh\":%.2f,"
+      "\"bmp_temp\":%.2f,\"bmp_pres\":%.2f,\"alt_m\":%.2f,"
+      "\"avg_temp\":%.2f,\"hi_c\":%.2f,\"dp\":%.2f,\"ah\":%.3f,"
+      "\"min_t\":%.2f,\"max_t\":%.2f,"
+      "\"min_h\":%.2f,\"max_h\":%.2f,"
+      "\"min_p\":%.2f,\"max_p\":%.2f,"
+      "\"trend_label\":\"%s\",\"trend_arrow\":\"%s\","
+      "\"press_delta_3h\":%.2f"
+    "}",
+    deviceId, millis(),
+    dhtTemp, dhtRH,
+    bmpTemp, bmpPres, altM,
+    avgTemp, hiC, dp, ah,
+    minMaxInit ? minT : 0.0f, minMaxInit ? maxT : 0.0f,
+    minMaxInit ? minH : 0.0f, minMaxInit ? maxH : 0.0f,
+    minMaxInit ? minP : 0.0f, minMaxInit ? maxP : 0.0f,
+    trendLabel, trendArrow,
+    pressDelta
+  );
+
+  int bodyLen = strlen(body);
+
+  httpClient.print(F("POST ")); httpClient.print(INGEST_PATH); httpClient.println(F(" HTTP/1.1"));
+  httpClient.print(F("Host: "));           httpClient.println(BACKEND_HOST);
+  httpClient.println(F("Content-Type: application/json"));
+  httpClient.print(F("Content-Length: ")); httpClient.println(bodyLen);
+  httpClient.println(F("Connection: close"));
+  httpClient.println();
+  httpClient.print(body);
+
+  // Drain response (max 1 s)
+  unsigned long dl = millis() + 1000;
+  while (httpClient.connected() && millis() < dl)
+    while (httpClient.available()) httpClient.read();
+
+  httpClient.stop();
+}
+
 // --- Web dashboard ---
 
 void serveClient(WiFiClient& client) {
@@ -550,6 +611,10 @@ void setup() {
     server.begin();
     IPAddress ip = WiFi.localIP();
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+    uint8_t macBuf[6];
+    WiFi.macAddress(macBuf);
+    snprintf(deviceId, sizeof(deviceId), "%02X:%02X:%02X:%02X:%02X:%02X",
+             macBuf[0], macBuf[1], macBuf[2], macBuf[3], macBuf[4], macBuf[5]);
 
     display.clearBuffer();
     display.setFont(u8g2_font_7x13B_tf);
@@ -618,6 +683,11 @@ void loop() {
   }
 
   if (wifiOK) {
+    if (sensorsReady && now - lastIngest >= INGEST_MS) {
+      lastIngest = now;
+      postIngest();
+    }
+
     WiFiClient client = server.available();
     if (client) {
       serveClient(client);

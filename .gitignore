@@ -1,0 +1,12 @@
+# Never commit actual WiFi credentials or backend IP
+secrets.h
+
+# Node
+server/node_modules/
+dashboard/node_modules/
+dashboard/dist/
+
+# SQLite database
+*.db
+*.db-wal
+*.db-shm
